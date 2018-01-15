@@ -8,7 +8,7 @@ The Hyperledger Fabric architecture delivers the following advantages:
    assumptions for ordering. In other words, the ordering service may be
    provided by one set of nodes (orderers) and tolerate some of them to
    fail or misbehave, and the endorsers may be different for each
-   chaincode.
+   chaincode. Hello Anthony.
 
 -  **Scalability.** As the endorser nodes responsible for particular
    chaincode are orthogonal to the orderers, the system may *scale*
