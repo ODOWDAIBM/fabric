@@ -43,7 +43,9 @@ extensions = ['sphinx.ext.autodoc',
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
-# recommonmark is a utility that allows markdown to be used withing Sphinx projects
+# recommonmark is a python utility that allows markdown to be used within
+# Sphinx projects.
+# Installed version as per directive in docs/requirement.txt
 from recommonmark.parser import CommonMarkParser
 
 source_parsers = {
