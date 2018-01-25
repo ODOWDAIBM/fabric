@@ -42,7 +42,8 @@ Business:
    :caption: Key Concepts
 
    blockchain
-   functionalities
+   peers/Peers
+   capabilities
    fabric_model
    ledger
    usecases
