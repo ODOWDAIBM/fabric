@@ -4,7 +4,7 @@
 
 What makes peers important is that *they are the place where ledgers and smart contracts physically reside*. Because of this, *peers are what actually form the physical structure of blockchain network*. Moreover, peers have connections to other peers (and other components such as orderers), and these connections are likewise a vital part of the network.  But at the core of the network is the concept of a peer, and it's peers that we discuss at length in this topic.
 
-## Forming the blockchain network
+## Forming the network
 
 A blockchain network is primarily formed by a set of peer nodes. Peers are the most important elements of the network because they host ledgers and smart contract chaincodes. Without peers, there cannot be a blockchain network, and they are the first concept to understand. Other elements of the network are important -- such as orderers, channels and policies, and you'll find out about these in their own topic -- but you'll find it easiest to start with peers.
 
@@ -16,7 +16,7 @@ A blockchain network is primarily formed by a set of peer nodes. Peers are the m
 
 It's helpful to remember that the blockchain network only comes into existence when peers and certain other objects -- such as ledgers and smart contracts, policies, orderers, and MSPs -- are defined. This means that *a blockchain networks is not a separable object*. The administration of a blockchain network amounts to the management of its constituent parts, rather than any separate object called a "network".  
 
-## Hosting smart contracts and ledgers
+## Smart contracts and ledgers
 
 Let's look at a peer in a little more detail. We can see that it's the peer that hosts both the ledger and smart contracts. More accurately, the peer actually hosts *instances* of the ledger, and *instances* of smart contract chaincode. Note that this provides a deliberate redundancy in a Hyperledger Fabric network -- it avoids single points of failure.  We'll learn more about the distributed and decentralized nature of a blockchain network later in this topic.   
 
@@ -28,7 +28,7 @@ When a peer is first created, it has an empty instance of a ledger, and no insta
 
 Because a peer is a *host* for smart contracts and ledgers, if a network participant (e.g. an application outside the network) wants to provide or consume smart contracts and ledgers, they must interact with a peer. A network participant might be using an application, or might be an administrator -- but it's always the peer that provides the services that allow applications to interact with ledgers and smart contracts. That's why peers are considered the most fundamental building blocks of a Hyperledger Fabric blockchain network.
 
-## Multiple ledgers
+### Multiple ledgers
 
 A peer is able to host more than one ledger, which is helpful because it allows for a very flexible system design. The simplest peer configuration is to have a single ledger, but it's absolutely appropriate for a peer to host two or more ledgers when required. We'll see later how peers interact with the ledger, but for now, it's easiest to think of the ledger has being hosted on the peer.
 
@@ -38,7 +38,7 @@ A peer is able to host more than one ledger, which is helpful because it allows 
 
 Although its perfectly possible for a peer to host a ledger instance without hosting any smart contracts which access it, it's very rare that peers are configured this way. The vast majority of peers will have at least one smart contract installed on it which can query or update the peer's ledger instances.
 
-## Multiple smart contracts
+### Multiple smart contracts
 
 Typically, a peer will host many more smart contracts than ledgers.  Whereas there is a single ledger for each channel to which a peer is joined, there might be multiple smart contracts for every ledger hosted on a peer.  
 
@@ -50,7 +50,7 @@ It's also usually the case that different smart contracts access different ledge
 
 ## Applications and peers
 
-Applications connect to network peers when they need to access ledgers and smart contracts. A Software Development Kit (SDK) makes this easy for programs -- its APIs (application program interfaces) make it possible to connect with ledgers, invoke smart contracts, and receive ledger notifications. Peers make a blockchain network available to application programs in the same way other other operating system processes do. For example, web servers make make web pages available to browsers -- they are the equivalent of peers   
+Applications connect to network peers when they need to access ledgers and smart contracts. A Software Development Kit (SDK) makes this easy for programs -- its APIs (application program interfaces) make it possible to connect with ledgers, invoke smart contracts, and receive ledger notifications. Peers make a blockchain network available to application programs in the same way other other operating system processes do. For example, web servers make make web pages available to browsers -- that's the service they provide.  Peers are likewise the major service providers of a blockchain network.
 
 Through a peer connection, applications can execute smart contracts to query or update the ledger. Ledger queries are returned immediately, whereas ledger updates are asynchronous -- they require the consensus process to complete before the application can be informed.
 
@@ -60,9 +60,9 @@ Through a peer connection, applications can execute smart contracts to query or 
 
 A query transaction can return its results immediately to the application because all the information required to satisfy the query is in the local copy of the ledger. Indeed, an application can connect to one or more peers in the network which hosts a copy of the ledger to issue a query, as each peer's copy of the ledger is kept up-to-date; though typically applications will connect to a single peer. It's obvious that for query transactions the peer does not need to consult with other peers in order to return the results to the application, which is quite different to ledger updates.
 
-An update transaction is quite different, because a single peer cannot, on its own, update the ledger -- it requires the consent of other peers in the network. A peer requires other peers in the network to approve a ledger update before it can be applied to a peer's local ledger. This process is called *consensus* -- it is asynchronous in nature and therefore takes longer to complete than a query. But when all the peers required to approve the transaction do so, and the transaction is committed to the ledger, peers will notify their connected applications that the ledger has been updated.  You'll see a lot more detail about the role of peers in the consensus process later in this topic.
+An update transaction is only a a little different to a query transaction; applications connect to peers, invoke a smart contract, receive asynchronous notifications as the transaction progresses and when the ledger is updated. We'll see later that what happens *under the covers* is significantly more complex for an update transaction compared to a query transaction, but that's not important from the application's perspective.
 
-To reiterate, the SDK makes ledger query and ledger update easy for applications. For query transactions, applications connect to peers, invoke a smart contract regulating query transactions, and receive an immediate response. For update transactions, it's only a little more complex; applications connect to peers, invoke a smart contract regulating update transactions and receive an asynchronous notification when the ledger has been updated -- they do not need to worry about the mechanics of the consensus process.
+To reiterate, the SDK makes ledger query and ledger update easy for applications. For query transactions, applications connect to peers, invoke a smart contract and receive an immediate response. For update transactions, applications have to additionally wait asynchronously for the ledger update to complete.
 
 ## Peers and channels
 
@@ -128,11 +128,13 @@ Finally, note that it's not really important where the peer is physically locate
 
 We've seen that peers form a blockchain network, hosting ledgers and smart contracts which can be queried and updated by peer-connected applications. However, the mechanism by which applications and peers interact with each other to ensure that every peer's ledger is kept consistent is mediated by special nodes called *orderers*, and it's these nodes to which we now turn our attention.
 
-Applications that want to update the ledger are involved in a 3-phase process, which ensures that the all the peers in a blockchain network keep their ledgers consistent with each other. In the first phase, applications work with a subset of *endorsing peers*, each of which give their individual stamp of approval to a proposed ledger update, but do not apply the proposed update to their copy of the ledger. In the second phase, these separately endorsed transaction updates are collected together into blocks so that they can be checked for consistency. In the final phase, these blocks are distributed back to every peer where each transaction proposal is cross-checked before being applied to that peer's copy of the ledger.
+An update transaction is quite different to a query transaction because a single peer cannot, on its own, update the ledger -- it requires the consent of other peers in the network. A peer requires other peers in the network to approve a ledger update before it can be applied to a peer's local ledger. This process is called *consensus* -- it is asynchronous in nature and therefore takes longer to complete than a query. But when all the peers required to approve the transaction do so, and the transaction is committed to the ledger, peers will notify their connected applications that the ledger has been updated.  You're about to be shown a lot more detail about how peers and orderers manage the consensus process in this section.
+
+Specifically, applications that want to update the ledger are involved in a 3-phase process, which ensures that the all the peers in a blockchain network keep their ledgers consistent with each other. In the first phase, applications work with a subset of *endorsing peers*, each of which give their individual stamp of approval to a proposed ledger update, but do not apply the proposed update to their copy of the ledger. In the second phase, these separately endorsed transaction updates are collected together into blocks so that they can be checked for consistency. In the final phase, these blocks are distributed back to every peer where each transaction proposal is cross-checked before being applied to that peer's copy of the ledger.
 
 As you will see, orderer nodes are central to this process -- so let's investigate in a little more detail how applications and peers use orderers to generate ledger updates that can be consistently applied to a distributed, replicated ledger.
 
-### Phase 1: Propose ledger updates
+### Phase 1: Proposal
 
 The first phase of the transaction workflow does not involve an orderer node.  Applications generate a transaction proposal which they send to each of the required set of peers for endorsement. Each peer then independently executes that transaction proposal in a smart contract to generate a single transaction response which they return to the application. Once the application has received all transaction responses from all peers, the first phase of the transaction flow is complete. Let's examine this phase in a little more detail.
 
@@ -152,7 +154,7 @@ Phase 1 ends when the application receives endorsed transaction responses from a
 
 At the end of phase 1, the application is free to discard inconsistent transaction responses if it wishes to do so, effectively terminating the transaction workflow early.  If, however, an application sends a transaction response from one peer together with an endorsement from a peer which generated a transaction different response, the overall transaction will be rejected at the end of the transaction workflow process.  We'll see a little later in phase 3 how it's only consistent sets of transaction responses that are applied to the ledger.
 
-### Phase 2: Orderers package blocks
+### Phase 2: Packaging
 
 The second phase of the transaction worklow is the packaging phase. The orderer is pivotal to this process -- it receives endorsed transaction proposal responses from applications, and packages them into blocks ready for distribution back to all peers connected to the orderer, including the original endorsing peers.
 
