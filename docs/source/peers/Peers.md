@@ -205,3 +205,7 @@ We discuss orderers in a lot more detail elsewhere in the guide, but for now, th
 That's it! We've now finished our tour of peers and the other components that they relate to in Hyperledger Fabric.
 
 In summary, peers are in many ways the most important part of Hyperledger Fabric -- they form the network, host smart contracts and the ledger, handle transaction proposals and responses, and keep the ledger up-to-date by consistently applying transaction updates to the ledger.
+
+<!---
+Licensed under Creative Commons Attribution 4.0 International License https://creativecommons.org/licenses/by/4.0/)
+-->
