@@ -42,6 +42,7 @@ Business:
    :caption: Key Concepts
 
    blockchain
+   peers/peers.md
    functionalities
    fabric_model
    ledger
