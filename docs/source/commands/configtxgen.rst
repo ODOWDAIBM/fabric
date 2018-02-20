@@ -1,5 +1,5 @@
-Channel Configuration (configtxgen)
-===================================
+configtxgen
+===========
 
 This document describe the usage for the ``configtxgen`` utility for
 manipulating Hyperledger Fabric channel configuration.

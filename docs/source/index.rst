@@ -74,9 +74,22 @@ Business:
    endorsement-policies
    error-handling
    logging-control
-   peer-commands
    enable_tls
    kafka
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Command Reference
+
+   commands/peercommand.md
+   commands/peerchannel.md
+   commands/peerchaincode.md
+   commands/peerlogging.md
+   commands/peernode.md
+   commands/peerversion.md
+   commands/configtxgen.rst
+   commands/cryptogen.md
+   commands/configtxlator.rst
 
 .. toctree::
    :maxdepth: 2

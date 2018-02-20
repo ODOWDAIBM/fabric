@@ -1,5 +1,5 @@
-Reconfiguring with configtxlator
-================================
+configtxlator
+=============
 
 Overview
 --------
