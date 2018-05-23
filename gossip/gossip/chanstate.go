@@ -127,9 +127,39 @@ func (ga *gossipAdapterImpl) GetConf() channel.Config {
 	}
 }
 
+func (ga *gossipAdapterImpl) Sign(msg *proto.GossipMessage) (*proto.SignedGossipMessage, error) {
+	signer := func(msg []byte) ([]byte, error) {
+		return ga.mcs.Sign(msg)
+	}
+	sMsg := &proto.SignedGossipMessage{
+		GossipMessage: msg,
+	}
+	e, err := sMsg.Sign(signer)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.SignedGossipMessage{
+		Envelope:      e,
+		GossipMessage: msg,
+	}, nil
+}
+
 // Gossip gossips a message
 func (ga *gossipAdapterImpl) Gossip(msg *proto.SignedGossipMessage) {
-	ga.gossipServiceImpl.emitter.Add(msg)
+	ga.gossipServiceImpl.emitter.Add(&emittedGossipMessage{
+		SignedGossipMessage: msg,
+		filter: func(_ common.PKIidType) bool {
+			return true
+		},
+	})
+}
+
+// Forward sends message to the next hops
+func (ga *gossipAdapterImpl) Forward(msg proto.ReceivedMessage) {
+	ga.gossipServiceImpl.emitter.Add(&emittedGossipMessage{
+		SignedGossipMessage: msg.GetGossipMessage(),
+		filter:              msg.GetConnectionInfo().ID.IsNotSameFilter,
+	})
 }
 
 func (ga *gossipAdapterImpl) Send(msg *proto.SignedGossipMessage, peers ...*comm.RemotePeer) {

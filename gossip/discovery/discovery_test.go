@@ -43,6 +43,31 @@ func init() {
 	maxConnectionAttempts = 10000
 }
 
+type dummyReceivedMessage struct {
+	msg  *proto.SignedGossipMessage
+	info *proto.ConnectionInfo
+}
+
+func (*dummyReceivedMessage) Respond(msg *proto.GossipMessage) {
+	panic("implement me")
+}
+
+func (rm *dummyReceivedMessage) GetGossipMessage() *proto.SignedGossipMessage {
+	return rm.msg
+}
+
+func (*dummyReceivedMessage) GetSourceEnvelope() *proto.Envelope {
+	panic("implement me")
+}
+
+func (rm *dummyReceivedMessage) GetConnectionInfo() *proto.ConnectionInfo {
+	return rm.info
+}
+
+func (*dummyReceivedMessage) Ack(err error) {
+	panic("implement me")
+}
+
 type dummyCommModule struct {
 	msgsReceived uint32
 	msgsSent     uint32
@@ -52,7 +77,7 @@ type dummyCommModule struct {
 	streams      map[string]proto.Gossip_GossipStreamClient
 	conns        map[string]*grpc.ClientConn
 	lock         *sync.RWMutex
-	incMsgs      chan *proto.SignedGossipMessage
+	incMsgs      chan proto.ReceivedMessage
 	lastSeqs     map[string]uint64
 	shouldGossip bool
 	mock         *mock.Mock
@@ -98,6 +123,17 @@ func (comm *dummyCommModule) Gossip(msg *proto.SignedGossipMessage) {
 	defer comm.lock.Unlock()
 	for _, conn := range comm.streams {
 		conn.Send(msg.Envelope)
+	}
+}
+
+func (comm *dummyCommModule) Forward(msg proto.ReceivedMessage) {
+	if !comm.shouldGossip {
+		return
+	}
+	comm.lock.Lock()
+	defer comm.lock.Unlock()
+	for _, conn := range comm.streams {
+		conn.Send(msg.GetGossipMessage().Envelope)
 	}
 }
 
@@ -152,7 +188,7 @@ func (comm *dummyCommModule) Ping(peer *NetworkMember) bool {
 	return true
 }
 
-func (comm *dummyCommModule) Accept() <-chan *proto.SignedGossipMessage {
+func (comm *dummyCommModule) Accept() <-chan proto.ReceivedMessage {
 	return comm.incMsgs
 }
 
@@ -217,7 +253,12 @@ func (g *gossipInstance) GossipStream(stream proto.Gossip_GossipStreamServer) er
 		}
 
 		lgr.Debug(g.Discovery.Self().Endpoint, "Got message:", gMsg)
-		g.comm.incMsgs <- gMsg
+		g.comm.incMsgs <- &dummyReceivedMessage{
+			msg: gMsg,
+			info: &proto.ConnectionInfo{
+				ID: common.PKIidType("testID"),
+			},
+		}
 		atomic.AddUint32(&g.comm.msgsReceived, 1)
 
 		if aliveMsg := gMsg.GetAliveMsg(); aliveMsg != nil {
@@ -294,7 +335,7 @@ func createDiscoveryInstanceThatGossips(port int, id string, bootstrapPeers []st
 	comm := &dummyCommModule{
 		conns:        make(map[string]*grpc.ClientConn),
 		streams:      make(map[string]proto.Gossip_GossipStreamClient),
-		incMsgs:      make(chan *proto.SignedGossipMessage, 1000),
+		incMsgs:      make(chan proto.ReceivedMessage, 1000),
 		presumeDead:  make(chan common.PKIidType, 10000),
 		id:           id,
 		detectedDead: make(chan string, 10000),
@@ -337,6 +378,14 @@ func bootPeer(port int) string {
 	return fmt.Sprintf("localhost:%d", port)
 }
 
+func TestHasExternalEndpoints(t *testing.T) {
+	memberWithEndpoint := NetworkMember{Endpoint: "foo"}
+	memberWithoutEndpoint := NetworkMember{}
+
+	assert.True(t, HasExternalEndpoint(memberWithEndpoint))
+	assert.False(t, HasExternalEndpoint(memberWithoutEndpoint))
+}
+
 func TestToString(t *testing.T) {
 	nm := NetworkMember{
 		Endpoint:         "a",
@@ -364,7 +413,12 @@ func TestBadInput(t *testing.T) {
 			DataMsg: &proto.DataMessage{},
 		},
 	}).NoopSign()
-	inst.Discovery.(*gossipDiscoveryImpl).handleMsgFromComm(s)
+	inst.Discovery.(*gossipDiscoveryImpl).handleMsgFromComm(&dummyReceivedMessage{
+		msg: s,
+		info: &proto.ConnectionInfo{
+			ID: common.PKIidType("testID"),
+		},
+	})
 }
 
 func TestConnect(t *testing.T) {
@@ -373,7 +427,7 @@ func TestConnect(t *testing.T) {
 	instances := []*gossipInstance{}
 	firstSentMemReqMsgs := make(chan *proto.SignedGossipMessage, nodeNum)
 	for i := 0; i < nodeNum; i++ {
-		inst := createDiscoveryInstance(7611+i, fmt.Sprintf("d%d", i), []string{})
+		inst := createDiscoveryInstance(17611+i, fmt.Sprintf("d%d", i), []string{})
 
 		inst.comm.lock.Lock()
 		inst.comm.mock = &mock.Mock{}
@@ -393,7 +447,7 @@ func TestConnect(t *testing.T) {
 
 		instances = append(instances, inst)
 		j := (i + 1) % 10
-		endpoint := fmt.Sprintf("localhost:%d", 7611+j)
+		endpoint := fmt.Sprintf("localhost:%d", 17611+j)
 		netMember2Connect2 := NetworkMember{Endpoint: endpoint, PKIid: []byte(endpoint)}
 		inst.Connect(netMember2Connect2, func() (identification *PeerIdentification, err error) {
 			return &PeerIdentification{SelfOrg: false, ID: nil}, nil
@@ -425,18 +479,18 @@ func TestConnect(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	t.Parallel()
 	nodeNum := 5
-	bootPeers := []string{bootPeer(6611), bootPeer(6612)}
+	bootPeers := []string{bootPeer(16611), bootPeer(16612)}
 	instances := []*gossipInstance{}
 
-	inst := createDiscoveryInstance(6611, "d1", bootPeers)
+	inst := createDiscoveryInstance(16611, "d1", bootPeers)
 	instances = append(instances, inst)
 
-	inst = createDiscoveryInstance(6612, "d2", bootPeers)
+	inst = createDiscoveryInstance(16612, "d2", bootPeers)
 	instances = append(instances, inst)
 
 	for i := 3; i <= nodeNum; i++ {
 		id := fmt.Sprintf("d%d", i)
-		inst = createDiscoveryInstance(6610+i, id, bootPeers)
+		inst = createDiscoveryInstance(16610+i, id, bootPeers)
 		instances = append(instances, inst)
 	}
 
@@ -447,7 +501,7 @@ func TestUpdate(t *testing.T) {
 	waitUntilOrFail(t, fullMembership)
 
 	instances[0].UpdateMetadata([]byte("bla bla"))
-	instances[nodeNum-1].UpdateEndpoint("localhost:5511")
+	instances[nodeNum-1].UpdateEndpoint("localhost:15511")
 
 	checkMembership := func() bool {
 		for _, member := range instances[nodeNum-1].GetMembership() {
@@ -460,7 +514,7 @@ func TestUpdate(t *testing.T) {
 
 		for _, member := range instances[0].GetMembership() {
 			if string(member.PKIid) == instances[nodeNum-1].comm.id {
-				if "localhost:5511" != string(member.Endpoint) {
+				if "localhost:15511" != string(member.Endpoint) {
 					return false
 				}
 			}
@@ -497,6 +551,21 @@ func TestInitiateSync(t *testing.T) {
 	assertMembership(t, instances, nodeNum-1)
 	atomic.StoreInt32(&toDie, int32(1))
 	stopInstances(t, instances)
+}
+
+func TestSelf(t *testing.T) {
+	t.Parallel()
+	inst := createDiscoveryInstance(13463, "d1", []string{})
+	defer inst.Stop()
+	env := inst.Self().Envelope
+	sMsg, err := env.ToGossipMessage()
+	assert.NoError(t, err)
+	member := sMsg.GetAliveMsg().Membership
+	assert.Equal(t, "localhost:13463", member.Endpoint)
+	assert.Equal(t, []byte("localhost:13463"), member.PkiId)
+
+	assert.Equal(t, "localhost:13463", inst.Self().Endpoint)
+	assert.Equal(t, common.PKIidType("localhost:13463"), inst.Self().PKIid)
 }
 
 func TestExpiration(t *testing.T) {
@@ -583,14 +652,14 @@ func TestGetFullMembership(t *testing.T) {
 
 func TestGossipDiscoveryStopping(t *testing.T) {
 	t.Parallel()
-	inst := createDiscoveryInstance(9611, "d1", []string{bootPeer(9611)})
+	inst := createDiscoveryInstance(19611, "d1", []string{bootPeer(19611)})
 	time.Sleep(time.Second)
 	waitUntilOrFailBlocking(t, inst.Stop)
 }
 
 func TestGossipDiscoverySkipConnectingToLocalhostBootstrap(t *testing.T) {
 	t.Parallel()
-	inst := createDiscoveryInstance(11611, "d1", []string{"localhost:11611", "127.0.0.1:11611"})
+	inst := createDiscoveryInstance(11711, "d1", []string{"localhost:11711", "127.0.0.1:11711"})
 	inst.comm.lock.Lock()
 	inst.comm.mock = &mock.Mock{}
 	inst.comm.mock.On("SendToPeer", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
@@ -928,7 +997,7 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 	}
 	// Creating Alive messages
 	for i := 0; i < peersNum; i++ {
-		aliveMsg, _ := instances[i].discoveryImpl().createAliveMessage(true)
+		aliveMsg, _ := instances[i].discoveryImpl().createSignedAliveMessage(true)
 		aliveMsgs = append(aliveMsgs, aliveMsg)
 	}
 
@@ -944,7 +1013,12 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 	// Handling Alive
 	for i := 0; i < peersNum; i++ {
 		for k := 0; k < peersNum; k++ {
-			instances[i].discoveryImpl().handleMsgFromComm(aliveMsgs[k])
+			instances[i].discoveryImpl().handleMsgFromComm(&dummyReceivedMessage{
+				msg: aliveMsgs[k],
+				info: &proto.ConnectionInfo{
+					ID: common.PKIidType(fmt.Sprintf("d%d", i)),
+				},
+			})
 		}
 	}
 
@@ -991,7 +1065,7 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 				return k == i
 			},
 			func(k int) {
-				aliveMsg, _ := instances[k].discoveryImpl().createAliveMessage(true)
+				aliveMsg, _ := instances[k].discoveryImpl().createSignedAliveMessage(true)
 				memResp := instances[k].discoveryImpl().createMembershipResponse(aliveMsg, peerToResponse)
 				memRespMsgs[i] = append(memRespMsgs[i], memResp)
 			})
@@ -999,14 +1073,19 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 
 	// Re-creating Alive msgs with highest seq_num, to make sure Alive msgs in memReq and memResp are older
 	for i := 0; i < peersNum; i++ {
-		aliveMsg, _ := instances[i].discoveryImpl().createAliveMessage(true)
+		aliveMsg, _ := instances[i].discoveryImpl().createSignedAliveMessage(true)
 		newAliveMsgs = append(newAliveMsgs, aliveMsg)
 	}
 
 	// Handling new Alive set
 	for i := 0; i < peersNum; i++ {
 		for k := 0; k < peersNum; k++ {
-			instances[i].discoveryImpl().handleMsgFromComm(newAliveMsgs[k])
+			instances[i].discoveryImpl().handleMsgFromComm(&dummyReceivedMessage{
+				msg: newAliveMsgs[k],
+				info: &proto.ConnectionInfo{
+					ID: common.PKIidType(fmt.Sprintf("d%d", i)),
+				},
+			})
 		}
 	}
 
@@ -1041,7 +1120,12 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 				return k == i
 			},
 			func(k int) {
-				instances[i].discoveryImpl().handleMsgFromComm(memReqMsgs[k])
+				instances[i].discoveryImpl().handleMsgFromComm(&dummyReceivedMessage{
+					msg: memReqMsgs[k],
+					info: &proto.ConnectionInfo{
+						ID: common.PKIidType(fmt.Sprintf("d%d", i)),
+					},
+				})
 			})
 	}
 
@@ -1053,7 +1137,12 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 	// Processing old (later) Alive messages
 	for i := 0; i < peersNum; i++ {
 		for k := 0; k < peersNum; k++ {
-			instances[i].discoveryImpl().handleMsgFromComm(aliveMsgs[k])
+			instances[i].discoveryImpl().handleMsgFromComm(&dummyReceivedMessage{
+				msg: aliveMsgs[k],
+				info: &proto.ConnectionInfo{
+					ID: common.PKIidType(fmt.Sprintf("d%d", i)),
+				},
+			})
 		}
 	}
 
@@ -1074,7 +1163,12 @@ func TestMsgStoreExpirationWithMembershipMessages(t *testing.T) {
 					MemRes: msg,
 				},
 			}).NoopSign()
-			instances[i].discoveryImpl().handleMsgFromComm(sMsg)
+			instances[i].discoveryImpl().handleMsgFromComm(&dummyReceivedMessage{
+				msg: sMsg,
+				info: &proto.ConnectionInfo{
+					ID: common.PKIidType(fmt.Sprintf("d%d", i)),
+				},
+			})
 		}
 	}
 
@@ -1112,7 +1206,7 @@ func TestAliveMsgStore(t *testing.T) {
 	}
 	// Creating Alive messages
 	for i := 0; i < peersNum; i++ {
-		aliveMsg, _ := instances[i].discoveryImpl().createAliveMessage(true)
+		aliveMsg, _ := instances[i].discoveryImpl().createSignedAliveMessage(true)
 		aliveMsgs = append(aliveMsgs, aliveMsg)
 	}
 
@@ -1159,6 +1253,45 @@ func TestMemRespDisclosurePol(t *testing.T) {
 	assertMembership(t, []*gossipInstance{d2}, 0)
 	assert.Zero(t, d2.receivedMsgCount())
 	assert.NotZero(t, d2.sentMsgCount())
+}
+
+func TestMembersByID(t *testing.T) {
+	members := Members{
+		{PKIid: common.PKIidType("p0"), Endpoint: "p0"},
+		{PKIid: common.PKIidType("p1"), Endpoint: "p1"},
+	}
+	byID := members.ByID()
+	assert.Len(t, byID, 2)
+	assert.Equal(t, "p0", byID["p0"].Endpoint)
+	assert.Equal(t, "p1", byID["p1"].Endpoint)
+}
+
+func TestFilter(t *testing.T) {
+	members := Members{
+		{PKIid: common.PKIidType("p0"), Endpoint: "p0", Properties: &proto.Properties{
+			Chaincodes: []*proto.Chaincode{{Name: "cc", Version: "1.0"}},
+		}},
+		{PKIid: common.PKIidType("p1"), Endpoint: "p1", Properties: &proto.Properties{
+			Chaincodes: []*proto.Chaincode{{Name: "cc", Version: "2.0"}},
+		}},
+	}
+	res := members.Filter(func(member NetworkMember) bool {
+		cc := member.Properties.Chaincodes[0]
+		return cc.Version == "2.0" && cc.Name == "cc"
+	})
+	assert.Equal(t, Members{members[1]}, res)
+}
+
+func TestMembersIntersect(t *testing.T) {
+	members1 := Members{
+		{PKIid: common.PKIidType("p0"), Endpoint: "p0"},
+		{PKIid: common.PKIidType("p1"), Endpoint: "p1"},
+	}
+	members2 := Members{
+		{PKIid: common.PKIidType("p1"), Endpoint: "p1"},
+		{PKIid: common.PKIidType("p2"), Endpoint: "p2"},
+	}
+	assert.Equal(t, Members{{PKIid: common.PKIidType("p1"), Endpoint: "p1"}}, members1.Intersect(members2))
 }
 
 func waitUntilOrFail(t *testing.T, pred func() bool) {

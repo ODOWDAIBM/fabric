@@ -1,4 +1,3 @@
-*Needs Review*
 
 Glossary
 ===========================
@@ -13,11 +12,15 @@ read the entire thing in one sitting if you like; it's pretty enlightening!
 Anchor Peer
 -----------
 
-A peer node on a channel that all other peers can discover and communicate with.
-Each Member_ on a channel has an anchor peer (or multiple anchor peers to prevent
-single point of failure), allowing for peers belonging to different Members to
-discover all existing peers on a channel.
-
+Anchor peers are used to bootstrap gossip communication between peers from
+different organizations. Cross-organization gossip is scoped to channels. In
+order for cross-org gossip to work, peers from one org need to know at
+least the address of a peer from another organization in the channel.
+Each organization added to a channel should identify at least one of its
+peers as an anchor peer. The anchor peer address is stored in the
+configuration block of the channel. Each organization that has a peer
+should have at least one (there can be more than one) of its peers
+defined as an anchor peer.
 
 .. _Block:
 
@@ -100,6 +103,18 @@ A broader term overarching the entire transactional flow, which serves to genera
 an agreement on the order and to confirm the correctness of the set of transactions
 constituting a block.
 
+.. Consortium
+
+Consortium
+----------
+
+A consortium is a collection of non-orderer organizations on the blockchain
+network. These are the organizations that form and join channels and that own
+peers. While a blockchain network can have multiple consortia, most blockchain
+networks have a single consortium. At channel creation time, all organizations
+added to the channel must be part of a consortium. However, an organization
+that is not defined in a consortium may be added to an existing channel.
+
 .. _Current-State:
 
 Current State
@@ -127,8 +142,10 @@ be added/removed for various reasons.
 Endorsement
 -----------
 
-Refers to the process where specific peer nodes execute a transaction and return
-a ``YES/NO`` response to the client application that generated the transaction proposal.
+Refers to the process where specific peer nodes execute a chaincode transaction and return
+a proposal response to the client application. The proposal response includes the
+chaincode execution response message, results (read set and write set), and events,
+as well as a signature to serve as proof of the peer's chaincode execution.
 Chaincode applications have corresponding endorsement policies, in which the endorsing
 peers are specified.
 
@@ -143,8 +160,9 @@ A policy could require that a transaction be endorsed by a minimum number of
 endorsing peers, a minimum percentage of endorsing peers, or by all endorsing
 peers that are assigned to a specific chaincode application. Policies can be
 curated based on the application and the desired level of resilience against
-misbehavior (deliberate or not) by the endorsing peers. A distinct endorsement
-policy for install and instantiate transactions is also required.
+misbehavior (deliberate or not) by the endorsing peers. A transaction that is submitted
+must satisfy the endorsement policy before being marked as valid by committing peers.
+A distinct endorsement policy for install and instantiate transactions is also required.
 
 .. _Fabric-ca:
 
@@ -190,17 +208,25 @@ The process of placing a chaincode on a peer's file system.
 Instantiate
 -----------
 
-The process of starting a chaincode container.
+The process of starting and initializing a chaincode application on a specific channel.
+After instantiation, peers that have the chaincode installed can accept chaincode
+invocations.
 
 .. _Invoke:
 
 Invoke
 ------
 
-Used to call chaincode functions. Invocations are captured as transaction
-proposals, which then pass through a modular flow of endorsement, ordering,
-validation, committal. The structure of invoke is a function and an array of
-arguments.
+Used to call chaincode functions. A client application invokes chaincode by
+sending a transaction proposal to a peer. The peer will execute the chaincode
+and return an endorsed proposal response to the client application. The client
+application will gather enough proposal responses to satisfy an endorsement policy,
+and will then submit the transaction results for ordering, validation, and commit.
+The client application may choose not to submit the transaction results. For example
+if the invoke only queried the ledger, the client application typically would not
+submit the read-only transaction, unless there is desire to log the read on the ledger
+for audit purpose. The invoke includes a channel identifier, the chaincode function to
+invoke, and an array of arguments.
 
 .. _Leading-Peer:
 
@@ -217,17 +243,31 @@ channel, who then distribute them to other peers within the same member cluster.
 
 Ledger
 ------
+THIS REQUIRES UPDATING
+ADD SMART CONTRACT REFERENCE AND GLOSSARY ITEM
 
-A ledger is a channel's chain and current state data which is maintained by each
-peer on the channel.
+A ledger consists of two distinct, though related, parts -- a "blockchain" and
+the "state database", also known as "world state". Unlike other ledgers,
+blockchains are **immutable** -- that is, once a block has been added to the
+chain, it cannot be changed. In contrast, the "world state" is a database
+containing the current value of the set of key-value pairs that have been added,
+modified or deleted by the set of validated and committed transactions in the
+blockchain.
+
+It's helpful to think of there being one **logical** ledger for each channel in
+the network. In reality, each peer in a channel maintains its own copy of the
+ledger -- which is kept consistent with every other peer's copy through a
+process called **consensus**. The term **Distributed Ledger Technology**
+(**DLT**) is often associated with this kind of ledger -- one that is logically
+singular, but has many identical copies distributed across a set of network
+nodes (peers and the ordering service).
 
 .. _Member:
 
 Member
 ------
 
-A legally separate entity that owns a unique root certificate for the network.
-Network components such as peer nodes and application clients will be linked to a member.
+See Organization_.
 
 .. _MSP:
 
@@ -266,6 +306,21 @@ designed to support pluggable implementations beyond the out-of-the-box SOLO and
 The ordering service is a common binding for the overall network; it contains the cryptographic
 identity material tied to each Member_.
 
+.. _Organization:
+
+Organization
+-----------------
+Also known as "members", organizations are invited to join the blockchain network
+by a blockchain service provider. An organization is joined to a network by adding its
+Membership Service Provider (MSP_) to the network. The MSP defines how other members of the
+network may verify that signatures (such as those over transactions) were generated by a valid
+identity, issued by that organization. The particular access rights of identities within an MSP
+are governed by policies which are are also agreed upon when the organization is joined to the
+network. An organization can be as large as a multi-national corporation or as small as an
+individual. The transaction endpoint of an organization is a Peer_. A collection of organizations
+form a Consortium_. While all of the organizations on a network are members, not every organization
+will be part of a consortium.
+
 .. _Peer:
 
 Peer
@@ -279,7 +334,7 @@ read/write operations to the ledger.  Peers are owned and maintained by members.
 Policy
 ------
 
-There are policies for endorsement, validation, block committal, chaincode
+There are policies for endorsement, validation, chaincode
 management and network/channel management.
 
 .. _Proposal:
@@ -295,7 +350,14 @@ proposal is either an instantiate or an invoke (read/write) request.
 Query
 -----
 
-A query requests the value of a key(s) against the current state.
+A query is a chaincode invocation which reads the ledger current state but does
+not write to the ledger. The chaincode function may query certain keys on the ledger,
+or may query for a set of keys on the ledger. Since queries do not change ledger state,
+the client application will typically not submit these read-only transactions for ordering,
+validation, and commit. Although not typical, the client application can choose to
+submit the read-only transaction for ordering, validation, and commit, for example if the
+client wants auditable proof on the ledger chain that it had knowledge of specific ledger
+state at a certain point in time.
 
 .. _SDK:
 
@@ -307,8 +369,11 @@ for developers to write and test chaincode applications. The SDK is fully
 configurable and extensible through a standard interface. Components, including
 cryptographic algorithms for signatures, logging frameworks and state stores,
 are easily swapped in and out of the SDK. The SDK provides APIs for transaction
-processing, membership services, node traversal and event handling. The SDK
-comes in multiple flavors: Node.js, Java. and Python.
+processing, membership services, node traversal and event handling.
+
+Currently, the two officially supported SDKs are for Node.js and Java, while three
+more -- Python, Go and REST -- are not yet official but can still be downloaded
+and tested.
 
 .. _State-DB:
 
@@ -316,7 +381,7 @@ State Database
 --------------
 
 Current state data is stored in a state database for efficient reads and queries
-from chaincode. These databases include levelDB and couchDB.
+from chaincode. Supported databases include levelDB and couchDB.
 
 .. _System-Chain:
 
@@ -340,9 +405,11 @@ channels relative to their aligned and varying business agendas.
 Transaction
 -----------
 
-An invoke or instantiate operation.  Invokes are requests to read/write data from
-the ledger.  Instantiate is a request to start a chaincode container on a peer.
+Invoke or instantiate results that are submitted for ordering, validation, and commit.
+Invokes are requests to read/write data from the ledger. Instantiate is a request to
+start and initialize a chaincode on a channel. Application clients gather invoke or
+instantiate responses from endorsing peers and package the results and endorsements
+into a transaction that is submitted for ordering, validation, and commit.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/
-

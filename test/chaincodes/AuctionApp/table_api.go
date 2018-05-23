@@ -18,7 +18,7 @@ limitations under the License.
 ///////////////////////////////////////////////////////////////////////
 // Author : IT People - Mohan Venkataraman - table API for v1.0
 // Purpose: Explore the Hyperledger/fabric and understand
-// how to write an chain code, application/chain code boundaries
+// how to write a chaincode, application/chaincode boundaries
 // The code is not the best as it has just hammered out in a day or two
 // Feedback and updates are appreciated
 ///////////////////////////////////////////////////////////////////////
@@ -52,7 +52,7 @@ var Objects = []string{"PARTY", "CASHTXN", "User", "UserCat", "Item", "ItemCat",
 // This information is used to dynamically Create, Update
 // Replace , and Query the Ledger
 // In this model all attributes in a table are strings
-// The chain code does both validation
+// The chaincode does both validation
 // A dummy key like 2016 in some cases is used for a query to get all rows
 //
 //              "User":        1, Key: UserID
@@ -117,11 +117,11 @@ func ChkRecType(args []string) bool {
 func CheckRecType(rt string) bool {
 	for _, val := range recType {
 		if val == rt {
-			fmt.Println("CheckRequestType() : Valid Request Type , val : ", val, rt, "\n")
+			fmt.Println("CheckRequestType() : Valid Request Type , val : ", val, rt)
 			return true
 		}
 	}
-	fmt.Println("CheckRequestType() : Invalid Request Type , val : ", rt, "\n")
+	fmt.Println("CheckRequestType() : Invalid Request Type , val : ", rt)
 	return false
 }
 
@@ -188,7 +188,7 @@ func UpdateObject(stub shim.ChaincodeStubInterface, objectType string, keys []st
 	// Add Object JSON to state
 	err = stub.PutState(compositeKey, objectData)
 	if err != nil {
-		fmt.Println("UpdateObject() : Error inserting Object into State Database %s", err)
+		fmt.Printf("UpdateObject() : Error inserting Object into State Database %s\n", err)
 		return err
 	}
 
@@ -215,7 +215,7 @@ func DeleteObject(stub shim.ChaincodeStubInterface, objectType string, keys []st
 	// Remove object from the State Database
 	err = stub.DelState(compositeKey)
 	if err != nil {
-		fmt.Println("DeleteObject() : Error deleting Object into State Database %s", err)
+		fmt.Printf("DeleteObject() : Error deleting Object into State Database %s\n", err)
 		return err
 	}
 	fmt.Println("DeleteObject() : ", "Object : ", objectType, " Key : ", compositeKey)
@@ -235,7 +235,7 @@ func DeleteAllObjects(stub shim.ChaincodeStubInterface, objectType string) error
 	// Remove object from the State Database
 	err := stub.DelState(compositeKey)
 	if err != nil {
-		fmt.Println("DeleteAllObjects() : Error deleting all Object into State Database %s", err)
+		fmt.Printf("DeleteAllObjects() : Error deleting all Object into State Database %s\n", err)
 		return err
 	}
 	fmt.Println("DeleteObject() : ", "Object : ", objectType, " Key : ", compositeKey)
@@ -263,7 +263,7 @@ func ReplaceObject(stub shim.ChaincodeStubInterface, objectType string, keys []s
 	// Add Party JSON to state
 	err = stub.PutState(compositeKey, objectData)
 	if err != nil {
-		fmt.Println("ReplaceObject() : Error replacing Object in State Database %s", err)
+		fmt.Printf("ReplaceObject() : Error replacing Object in State Database %s\n", err)
 		return err
 	}
 
@@ -317,7 +317,7 @@ func QueryObjectWithProcessingFunction(stub shim.ChaincodeStubInterface, objectT
 	}
 
 	if Avalbytes == nil {
-		return nil, fmt.Errorf("QueryObject: No Data Found for Compound Key : ", compoundKey)
+		return nil, fmt.Errorf("QueryObject: No Data Found for Compound Key : %v", compoundKey)
 	}
 
 	// Perform Any additional processing of data
@@ -325,7 +325,7 @@ func QueryObjectWithProcessingFunction(stub shim.ChaincodeStubInterface, objectT
 
 	err = fname(stub, Avalbytes, keys)
 	if err != nil {
-		fmt.Println("QueryLedger() : Cannot execute  : ", fname)
+		fmt.Println("QueryLedger() : Cannot execute fname")
 		jsonResp := "{\"fname() Error\":\" Cannot create Object for key " + compoundKey + "\"}"
 		return Avalbytes, errors.New(jsonResp)
 	}
@@ -378,7 +378,7 @@ func GetKeyList(stub shim.ChaincodeStubInterface, args []string) (shim.StateQuer
 ///////////////////////////////////////////////////////////////////////////////////////////
 func GetQueryResultForQueryString(stub shim.ChaincodeStubInterface, queryString string) ([]byte, error) {
 
-	fmt.Println("GetQueryResultForQueryString() : getQueryResultForQueryString queryString:\n%s\n", queryString)
+	fmt.Printf("GetQueryResultForQueryString() : getQueryResultForQueryString queryString:\n%s\n", queryString)
 
 	resultsIterator, err := stub.GetQueryResult(queryString)
 	if err != nil {
@@ -413,7 +413,7 @@ func GetQueryResultForQueryString(stub shim.ChaincodeStubInterface, queryString 
 	}
 	buffer.WriteString("]")
 
-	fmt.Println("GetQueryResultForQueryString(): getQueryResultForQueryString queryResult:\n%s\n", buffer.String())
+	fmt.Printf("GetQueryResultForQueryString(): getQueryResultForQueryString queryResult:\n%s\n", buffer.String())
 
 	return buffer.Bytes(), nil
 }
@@ -475,7 +475,7 @@ func VerifyAtLeastOneKeyIsPresent(objectType string, args []string) error {
 	}
 
 	if nCol < 1 {
-		error_str := fmt.Sprintf("VerifyAtLeastOneKeyIsPresent() Failed: Atleast 1 Key must is needed :  nKeys : %s, nCol : %s ", nKeys, nCol)
+		error_str := fmt.Sprintf("VerifyAtLeastOneKeyIsPresent() Failed: Atleast 1 Key must is needed :  nKeys : %d, nCol : %d ", nKeys, nCol)
 		fmt.Println(error_str)
 		return errors.New(error_str)
 	}

@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package chaincode
@@ -81,10 +71,13 @@ func initPeer(chainIDs ...string) (net.Listener, error) {
 	peer.MockInitialize()
 
 	mspGetter := func(cid string) []string {
-		return []string{"DEFAULT"}
+		return []string{"SampleOrg"}
 	}
 
 	peer.MockSetMSPIDGetter(mspGetter)
+
+	// For unit-test, tls is not required.
+	viper.Set("peer.tls.enabled", false)
 
 	var opts []grpc.ServerOption
 	if viper.GetBool("peer.tls.enabled") {
@@ -105,13 +98,10 @@ func initPeer(chainIDs ...string) (net.Listener, error) {
 		return nil, fmt.Errorf("Error starting peer listener %s", err)
 	}
 
-	getPeerEndpoint := func() (*pb.PeerEndpoint, error) {
-		return &pb.PeerEndpoint{Id: &pb.PeerID{Name: "testpeer"}, Address: peerAddress}, nil
-	}
-
-	ccStartupTimeout := time.Duration(chaincodeStartupTimeoutDefault) * time.Millisecond
+	ccStartupTimeout := time.Duration(3) * time.Minute
 	ca, _ := accesscontrol.NewCA()
-	pb.RegisterChaincodeSupportServer(grpcServer, NewChaincodeSupport(getPeerEndpoint, false, ccStartupTimeout, ca))
+	certGenerator := accesscontrol.NewAuthenticator(ca)
+	pb.RegisterChaincodeSupportServer(grpcServer, NewChaincodeSupport(peerAddress, false, ccStartupTimeout, ca.CertBytes(), certGenerator))
 
 	// Mock policy checker
 	policy.RegisterPolicyCheckerFactory(&mockPolicyCheckerFactory{})
@@ -201,7 +191,7 @@ func endTxSimulationCDS(chainID string, txid string, txsim ledger.TxSimulator, p
 	}
 
 	// get a proposal - we need it to get a transaction
-	prop, _, err := putils.CreateDeployProposalFromCDS(chainID, cds, ss, nil, nil, nil)
+	prop, _, err := putils.CreateDeployProposalFromCDS(chainID, cds, ss, nil, nil, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -281,7 +271,30 @@ func endTxSimulation(chainID string, ccid *pb.ChaincodeID, txsim ledger.TxSimula
 			//see comment on _commitLock_
 			_commitLock_.Lock()
 			defer _commitLock_.Unlock()
-			if err := lgr.Commit(block); err != nil {
+
+			blockAndPvtData := &ledger.BlockAndPvtData{
+				Block:        block,
+				BlockPvtData: make(map[uint64]*ledger.TxPvtData),
+			}
+
+			// All tests are performed with just one transaction in a block.
+			// Hence, we can simiplify the procedure of constructing the
+			// block with private data. There is not enough need to
+			// add more than one transaction in a block for testing chaincode
+			// API.
+
+			// ASSUMPTION: Only one transaction in a block.
+			seqInBlock := uint64(0)
+
+			if txSimulationResults.PvtSimulationResults != nil {
+
+				blockAndPvtData.BlockPvtData[seqInBlock] = &ledger.TxPvtData{
+					SeqInBlock: seqInBlock,
+					WriteSet:   txSimulationResults.PvtSimulationResults,
+				}
+			}
+
+			if err := lgr.CommitWithPvtData(blockAndPvtData); err != nil {
 				return err
 			}
 		}
@@ -362,6 +375,7 @@ func deploy2(ctx context.Context, cccid *ccprovider.CCContext, chaincodeDeployme
 	if _, _, err = ExecuteWithErrorFilter(ctx, lsccid, cis); err != nil {
 		return nil, fmt.Errorf("Error deploying chaincode (1): %s", err)
 	}
+
 	if b, _, err = ExecuteWithErrorFilter(ctx, cccid, chaincodeDeploymentSpec); err != nil {
 		return nil, fmt.Errorf("Error deploying chaincode(2): %s", err)
 	}
@@ -446,108 +460,6 @@ func executeDeployTransaction(t *testing.T, chainID string, name string, url str
 	}
 
 	theChaincodeSupport.Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec})
-}
-
-// chaincodeQueryChaincode function
-func _(chainID string, _ string) error {
-	var ctxt = context.Background()
-
-	// Deploy first chaincode
-	url1 := "github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02"
-
-	cID1 := &pb.ChaincodeID{Name: "example02", Path: url1, Version: "0"}
-	f := "init"
-	args := util.ToChaincodeArgs(f, "a", "100", "b", "200")
-
-	spec1 := &pb.ChaincodeSpec{Type: 1, ChaincodeId: cID1, Input: &pb.ChaincodeInput{Args: args}}
-
-	cccid1 := ccprovider.NewCCContext(chainID, "example02", "0", "", false, nil, nil)
-
-	var nextBlockNumber uint64
-
-	_, err := deploy(ctxt, cccid1, spec1, nextBlockNumber)
-	nextBlockNumber++
-
-	ccID1 := spec1.ChaincodeId.Name
-	if err != nil {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		return fmt.Errorf("Error initializing chaincode %s(%s)", ccID1, err)
-	}
-
-	time.Sleep(time.Second)
-
-	// Deploy second chaincode
-	url2 := "github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example05"
-
-	cID2 := &pb.ChaincodeID{Name: "example05", Path: url2, Version: "0"}
-	f = "init"
-	args = util.ToChaincodeArgs(f, "sum", "0")
-
-	spec2 := &pb.ChaincodeSpec{Type: 1, ChaincodeId: cID2, Input: &pb.ChaincodeInput{Args: args}}
-
-	cccid2 := ccprovider.NewCCContext(chainID, "example05", "0", "", false, nil, nil)
-
-	_, err = deploy(ctxt, cccid2, spec2, nextBlockNumber)
-	nextBlockNumber++
-	ccID2 := spec2.ChaincodeId.Name
-	if err != nil {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-		return fmt.Errorf("Error initializing chaincode %s(%s)", ccID2, err)
-	}
-
-	time.Sleep(time.Second)
-
-	// Invoke second chaincode, which will inturn query the first chaincode
-	f = "invoke"
-	args = util.ToChaincodeArgs(f, ccID1, "sum")
-
-	spec2 = &pb.ChaincodeSpec{Type: 1, ChaincodeId: cID2, Input: &pb.ChaincodeInput{Args: args}}
-	// Invoke chaincode
-	var retVal []byte
-	_, _, retVal, err = invoke(ctxt, chainID, spec2, nextBlockNumber, []byte("Alice"))
-	nextBlockNumber++
-
-	if err != nil {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-		return fmt.Errorf("Error invoking <%s>: %s", ccID2, err)
-	}
-
-	// Check the return value
-	result, err := strconv.Atoi(string(retVal))
-	if err != nil || result != 300 {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-		return fmt.Errorf("Incorrect final state after transaction for <%s>: %s", ccID1, err)
-	}
-
-	// Query second chaincode, which will inturn query the first chaincode
-	f = "query"
-	args = util.ToChaincodeArgs(f, ccID1, "sum")
-
-	spec2 = &pb.ChaincodeSpec{Type: 1, ChaincodeId: cID2, Input: &pb.ChaincodeInput{Args: args}}
-	// Invoke chaincode
-	_, _, retVal, err = invoke(ctxt, chainID, spec2, nextBlockNumber, []byte("Alice"))
-
-	if err != nil {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-		return fmt.Errorf("Error querying <%s>: %s", ccID2, err)
-	}
-
-	// Check the return value
-	result, err = strconv.Atoi(string(retVal))
-	if err != nil || result != 300 {
-		theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-		theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-		return fmt.Errorf("Incorrect final value after query for <%s>: %s", ccID1, err)
-	}
-
-	theChaincodeSupport.Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec1})
-	theChaincodeSupport.Stop(ctxt, cccid2, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec2})
-
-	return nil
 }
 
 // Check the correctness of the final state after transaction execution.
@@ -1070,7 +982,8 @@ func TestChaincodeInvokeChaincodeErrorCase(t *testing.T) {
 
 // Test the invocation of a transaction.
 func TestQueries(t *testing.T) {
-	testForSkip(t)
+	// Allow queries test alone so that end to end test can be performed. It takes less than 5 seconds.
+	//testForSkip(t)
 
 	chainID := util.GetTestChainID()
 
@@ -1105,6 +1018,7 @@ func TestQueries(t *testing.T) {
 		return
 	}
 
+	var keys []interface{}
 	// Add 101 marbles for testing range queries and rich queries (for capable ledgers)
 	// The tests will test both range and rich queries and queries with query limits
 	for i := 1; i <= 101; i++ {
@@ -1135,6 +1049,7 @@ func TestQueries(t *testing.T) {
 			theChaincodeSupport.Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec})
 			return
 		}
+
 	}
 
 	//The following range query for "marble001" to "marble011" should return 10 marbles
@@ -1151,7 +1066,6 @@ func TestQueries(t *testing.T) {
 		return
 	}
 
-	var keys []interface{}
 	err = json.Unmarshal(retval, &keys)
 	if len(keys) != 10 {
 		t.Fail()
@@ -1268,7 +1182,6 @@ func TestQueries(t *testing.T) {
 			theChaincodeSupport.Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec})
 			return
 		}
-
 		//Reset the query limit to 5
 		viper.Set("ledger.state.queryLimit", 5)
 
@@ -1288,7 +1201,6 @@ func TestQueries(t *testing.T) {
 
 		//unmarshal the results
 		err = json.Unmarshal(retval, &keys)
-
 		//check to see if there are 5 values
 		if len(keys) != 5 {
 			t.Fail()
@@ -1399,7 +1311,7 @@ func TestQueries(t *testing.T) {
 	err = json.Unmarshal(retval, &history)
 	if len(history) != 3 {
 		t.Fail()
-		t.Logf("Error detected with the history query, should have returned 3 but returned %v", len(keys))
+		t.Logf("Error detected with the history query, should have returned 3 but returned %v", len(history))
 		theChaincodeSupport.Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec})
 		return
 	}
@@ -1768,7 +1680,7 @@ func TestChaincodeInitializeInitError(t *testing.T) {
 
 			var nextBlockNumber uint64
 
-			// the chaincode to install and instanciate
+			// the chaincode to install and instantiate
 			chaincodeName := generateChaincodeName(tc.chaincodeType)
 			chaincodePath := tc.chaincodePath
 			chaincodeVersion := "1.0.0.0"

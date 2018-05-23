@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/ccmetadata"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 	cutil "github.com/hyperledger/fabric/core/container/util"
 	pb "github.com/hyperledger/fabric/protos/peer"
@@ -89,6 +90,7 @@ func (nodePlatform *Platform) ValidateDeploymentSpec(cds *pb.ChaincodeDeployment
 	}
 	tr := tar.NewReader(gr)
 
+	var foundPackageJson = false
 	for {
 		header, err := tr.Next()
 		if err != nil {
@@ -102,7 +104,9 @@ func (nodePlatform *Platform) ValidateDeploymentSpec(cds *pb.ChaincodeDeployment
 		if !re.MatchString(header.Name) {
 			return fmt.Errorf("illegal file detected in payload: \"%s\"", header.Name)
 		}
-
+		if header.Name == "src/package.json" {
+			foundPackageJson = true
+		}
 		// --------------------------------------------------------------------------------------
 		// Check that file mode makes sense
 		// --------------------------------------------------------------------------------------
@@ -115,6 +119,9 @@ func (nodePlatform *Platform) ValidateDeploymentSpec(cds *pb.ChaincodeDeployment
 		if header.Mode&^0100666 != 0 {
 			return fmt.Errorf("illegal file mode detected for file %s: %o", header.Name, header.Mode)
 		}
+	}
+	if !foundPackageJson {
+		return fmt.Errorf("no package.json found at the root of the chaincode package")
 	}
 
 	return nil
@@ -137,7 +144,8 @@ func (nodePlatform *Platform) GetDeploymentPayload(spec *pb.ChaincodeSpec) ([]by
 		return nil, errors.New("ChaincodeSpec's path cannot be empty")
 	}
 
-	if strings.LastIndex(folder, "/") == len(folder)-1 {
+	// trim trailing slash if it exists
+	if folder[len(folder)-1] == '/' {
 		folder = folder[:len(folder)-1]
 	}
 
@@ -177,7 +185,7 @@ func (nodePlatform *Platform) GenerateDockerBuild(cds *pb.ChaincodeDeploymentSpe
 	codepackage := bytes.NewReader(cds.CodePackage)
 	binpackage := bytes.NewBuffer(nil)
 	err := util.DockerBuild(util.DockerBuildOptions{
-		Cmd:          fmt.Sprint("cp -R /chaincode/input/src/* /chaincode/output && cd /chaincode/output && npm install -production"),
+		Cmd:          fmt.Sprint("cp -R /chaincode/input/src/. /chaincode/output && cd /chaincode/output && npm install --production"),
 		InputStream:  codepackage,
 		OutputStream: binpackage,
 	})
@@ -186,4 +194,9 @@ func (nodePlatform *Platform) GenerateDockerBuild(cds *pb.ChaincodeDeploymentSpe
 	}
 
 	return cutil.WriteBytesToPackage("binpackage.tar", binpackage.Bytes(), tw)
+}
+
+//GetMetadataProvider fetches metadata provider given deployment spec
+func (nodePlatform *Platform) GetMetadataProvider(cds *pb.ChaincodeDeploymentSpec) ccmetadata.MetadataProvider {
+	return &ccmetadata.TargzMetadataProvider{cds}
 }

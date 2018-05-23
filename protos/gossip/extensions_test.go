@@ -436,7 +436,7 @@ func TestCheckGossipMessageTypes(t *testing.T) {
 	// Create state response message
 	msg = signedGossipMessage(channelID, GossipMessage_EMPTY, &GossipMessage_StateResponse{
 		StateResponse: &RemoteStateResponse{
-			Payloads: []*Payload{&Payload{
+			Payloads: []*Payload{{
 				SeqNum: 1,
 				Data:   []byte{1, 2, 3, 4, 5},
 			}},
@@ -673,21 +673,6 @@ func TestGossipMessageLeadershipMessageTagType(t *testing.T) {
 	assert.Error(t, msg.IsTagLegal())
 }
 
-func TestConnectionInfo_IsAuthenticated(t *testing.T) {
-	connInfo := &ConnectionInfo{
-		ID: common.PKIidType("peerID"),
-	}
-
-	assert.False(t, connInfo.IsAuthenticated())
-
-	connInfo = &ConnectionInfo{
-		ID:   common.PKIidType("peerID"),
-		Auth: &AuthInfo{},
-	}
-
-	assert.True(t, connInfo.IsAuthenticated())
-}
-
 func TestGossipMessageSign(t *testing.T) {
 	idSigner := func(msg []byte) ([]byte, error) {
 		return msg, nil
@@ -838,7 +823,6 @@ func leadershipMessage(incNum uint64, seqNum uint64, pkid []byte) *GossipMessage
 func stateInfoMessage(incNum uint64, seqNum uint64, pkid []byte, mac []byte) *GossipMessage_StateInfo {
 	return &GossipMessage_StateInfo{
 		StateInfo: &StateInfo{
-			Metadata: []byte{},
 			Timestamp: &PeerTime{
 				IncNum: incNum,
 				SeqNum: seqNum,

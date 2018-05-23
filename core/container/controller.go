@@ -60,9 +60,7 @@ func init() {
 }
 
 func (vmc *VMController) newVM(typ string) api.VM {
-	var (
-		v api.VM
-	)
+	var v api.VM
 
 	switch typ {
 	case DOCKER:
@@ -150,19 +148,20 @@ func (bp CreateImageReq) getCCID() ccintf.CCID {
 	return bp.CCID
 }
 
-//StartImageReq - properties for starting a container.
-type StartImageReq struct {
+//StartContainerReq - properties for starting a container.
+type StartContainerReq struct {
 	ccintf.CCID
 	Builder       api.BuildSpecFactory
 	Args          []string
 	Env           []string
+	FilesToUpload map[string][]byte
 	PrelaunchFunc api.PrelaunchFunc
 }
 
-func (si StartImageReq) do(ctxt context.Context, v api.VM) VMCResp {
+func (si StartContainerReq) do(ctxt context.Context, v api.VM) VMCResp {
 	var resp VMCResp
 
-	if err := v.Start(ctxt, si.CCID, si.Args, si.Env, si.Builder, si.PrelaunchFunc); err != nil {
+	if err := v.Start(ctxt, si.CCID, si.Args, si.Env, si.FilesToUpload, si.Builder, si.PrelaunchFunc); err != nil {
 		resp = VMCResp{Err: err}
 	} else {
 		resp = VMCResp{}
@@ -171,12 +170,12 @@ func (si StartImageReq) do(ctxt context.Context, v api.VM) VMCResp {
 	return resp
 }
 
-func (si StartImageReq) getCCID() ccintf.CCID {
+func (si StartContainerReq) getCCID() ccintf.CCID {
 	return si.CCID
 }
 
-//StopImageReq - properties for stopping a container.
-type StopImageReq struct {
+//StopContainerReq - properties for stopping a container.
+type StopContainerReq struct {
 	ccintf.CCID
 	Timeout uint
 	//by default we will kill the container after stopping
@@ -185,7 +184,7 @@ type StopImageReq struct {
 	Dontremove bool
 }
 
-func (si StopImageReq) do(ctxt context.Context, v api.VM) VMCResp {
+func (si StopContainerReq) do(ctxt context.Context, v api.VM) VMCResp {
 	var resp VMCResp
 
 	if err := v.Stop(ctxt, si.CCID, si.Timeout, si.Dontkill, si.Dontremove); err != nil {
@@ -197,7 +196,7 @@ func (si StopImageReq) do(ctxt context.Context, v api.VM) VMCResp {
 	return resp
 }
 
-func (si StopImageReq) getCCID() ccintf.CCID {
+func (si StopContainerReq) getCCID() ccintf.CCID {
 	return si.CCID
 }
 
@@ -233,15 +232,14 @@ func (di DestroyImageReq) getCCID() ccintf.CCID {
 //context can be cancelled. VMCProcess will try to cancel calling functions if it can
 //For instance docker clients api's such as BuildImage are not cancelable.
 //In all cases VMCProcess will wait for the called go routine to return
-func VMCProcess(ctxt context.Context, vmtype string, req VMCReqIntf) (interface{}, error) {
+func VMCProcess(ctxt context.Context, vmtype string, req VMCReqIntf) (VMCResp, error) {
 	v := vmcontroller.newVM(vmtype)
-
 	if v == nil {
-		return nil, fmt.Errorf("Unknown VM type %s", vmtype)
+		return VMCResp{}, fmt.Errorf("Unknown VM type %s", vmtype)
 	}
 
 	c := make(chan struct{})
-	var resp interface{}
+	var resp VMCResp
 	go func() {
 		defer close(c)
 
@@ -261,6 +259,6 @@ func VMCProcess(ctxt context.Context, vmtype string, req VMCReqIntf) (interface{
 	case <-ctxt.Done():
 		//TODO cancel req.do ... (needed) ?
 		<-c
-		return nil, ctxt.Err()
+		return VMCResp{}, ctxt.Err()
 	}
 }

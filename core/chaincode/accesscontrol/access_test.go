@@ -8,6 +8,7 @@ package accesscontrol
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -15,7 +16,7 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
-	flogging "github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/flogging"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/op/go-logging"
 	"github.com/stretchr/testify/assert"
@@ -65,10 +66,10 @@ func (cs *ccSrv) stop() {
 	cs.l.Close()
 }
 
-func newCCServer(t *testing.T, port int, expectedCCname string, withTLS bool, clientCAcert []byte) *ccSrv {
+func newCCServer(t *testing.T, port int, expectedCCname string, withTLS bool, ca CA) *ccSrv {
 	var s *grpc.Server
 	if withTLS {
-		s = createTLSService(t, clientCAcert)
+		s = createTLSService(t, ca, "localhost")
 	} else {
 		s = grpc.NewServer()
 	}
@@ -87,15 +88,19 @@ type ccClient struct {
 	stream pb.ChaincodeSupport_RegisterClient
 }
 
-func newClient(t *testing.T, port int, cert *tls.Certificate) (*ccClient, error) {
+func newClient(t *testing.T, port int, cert *tls.Certificate, peerCACert []byte) (*ccClient, error) {
 	tlsCfg := &tls.Config{
-		InsecureSkipVerify: true,
+		RootCAs: x509.NewCertPool(),
 	}
+
+	tlsCfg.RootCAs.AppendCertsFromPEM(peerCACert)
 	if cert != nil {
 		tlsCfg.Certificates = []tls.Certificate{*cert}
 	}
 	tlsOpts := grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg))
-	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", port), tlsOpts, grpc.WithBlock(), grpc.WithTimeout(time.Second))
+	ctx := context.Background()
+	ctx, _ = context.WithTimeout(ctx, time.Second)
+	conn, err := grpc.DialContext(ctx, fmt.Sprintf("localhost:%d", port), tlsOpts, grpc.WithBlock())
 	if err != nil {
 		return nil, err
 	}
@@ -158,25 +163,25 @@ func TestAccessControl(t *testing.T) {
 	}
 
 	ca, _ := NewCA()
-	srv := newCCServer(t, 7052, "example02", true, ca.CertBytes())
-	auth := NewAuthenticator(srv, ca)
-	pb.RegisterChaincodeSupportServer(srv.grpcSrv, auth)
+	srv := newCCServer(t, 7052, "example02", true, ca)
+	auth := NewAuthenticator(ca)
+	pb.RegisterChaincodeSupportServer(srv.grpcSrv, auth.Wrap(srv))
 	go srv.grpcSrv.Serve(srv.l)
 	defer srv.stop()
 
 	// Create an attacker without a TLS certificate
-	_, err = newClient(t, 7052, nil)
+	_, err = newClient(t, 7052, nil, ca.CertBytes())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "tls: bad certificate")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 
 	// Create an attacker with its own TLS certificate
 	maliciousCA, _ := NewCA()
-	keyPair, err := maliciousCA.newCertKeyPair()
-	cert, err := tls.X509KeyPair(keyPair.certBytes, keyPair.keyBytes)
+	keyPair, err := maliciousCA.newClientCertKeyPair()
+	cert, err := tls.X509KeyPair(keyPair.Cert, keyPair.Key)
 	assert.NoError(t, err)
-	_, err = newClient(t, 7052, &cert)
+	_, err = newClient(t, 7052, &cert, ca.CertBytes())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "tls: bad certificate")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 
 	// Create a chaincode for example01 that tries to impersonate example02
 	kp, err := auth.Generate("example01")
@@ -187,7 +192,7 @@ func TestAccessControl(t *testing.T) {
 	assert.NoError(t, err)
 	cert, err = tls.X509KeyPair(certBytes, keyBytes)
 	assert.NoError(t, err)
-	mismatchedShim, err := newClient(t, 7052, &cert)
+	mismatchedShim, err := newClient(t, 7052, &cert, ca.CertBytes())
 	assert.NoError(t, err)
 	defer mismatchedShim.close()
 	mismatchedShim.sendMsg(registerMsg)
@@ -205,7 +210,7 @@ func TestAccessControl(t *testing.T) {
 	assert.NoError(t, err)
 	cert, err = tls.X509KeyPair(certBytes, keyBytes)
 	assert.NoError(t, err)
-	realCC, err := newClient(t, 7052, &cert)
+	realCC, err := newClient(t, 7052, &cert, ca.CertBytes())
 	assert.NoError(t, err)
 	defer realCC.close()
 	realCC.sendMsg(registerMsg)
@@ -229,7 +234,7 @@ func TestAccessControl(t *testing.T) {
 	assert.NoError(t, err)
 	cert, err = tls.X509KeyPair(certBytes, keyBytes)
 	assert.NoError(t, err)
-	confusedCC, err := newClient(t, 7052, &cert)
+	confusedCC, err := newClient(t, 7052, &cert, ca.CertBytes())
 	assert.NoError(t, err)
 	defer confusedCC.close()
 	confusedCC.sendMsg(putStateMsg)
@@ -248,7 +253,7 @@ func TestAccessControl(t *testing.T) {
 	assert.NoError(t, err)
 	cert, err = tls.X509KeyPair(certBytes, keyBytes)
 	assert.NoError(t, err)
-	malformedMessageCC, err := newClient(t, 7052, &cert)
+	malformedMessageCC, err := newClient(t, 7052, &cert, ca.CertBytes())
 	assert.NoError(t, err)
 	defer malformedMessageCC.close()
 	// Save old payload
@@ -274,7 +279,7 @@ func TestAccessControl(t *testing.T) {
 	assert.NoError(t, err)
 	cert, err = tls.X509KeyPair(certBytes, keyBytes)
 	assert.NoError(t, err)
-	lateCC, err := newClient(t, 7052, &cert)
+	lateCC, err := newClient(t, 7052, &cert, ca.CertBytes())
 	assert.NoError(t, err)
 	defer realCC.close()
 	time.Sleep(ttl + time.Second*2)
@@ -283,50 +288,6 @@ func TestAccessControl(t *testing.T) {
 	echoMsg = lateCC.recv()
 	assert.Nil(t, echoMsg)
 	logAsserter.assertLastLogContains(t, "with given certificate hash", "not found in registry")
-}
-
-func TestAccessControlNoTLS(t *testing.T) {
-	chaincodeID := &pb.ChaincodeID{Name: "example02"}
-	payload, err := proto.Marshal(chaincodeID)
-	registerMsg := &pb.ChaincodeMessage{
-		Type:    pb.ChaincodeMessage_REGISTER,
-		Payload: payload,
-	}
-	putStateMsg := &pb.ChaincodeMessage{
-		Type: pb.ChaincodeMessage_PUT_STATE,
-	}
-
-	ca, _ := NewCA()
-	s := newCCServer(t, 8052, "example02", false, ca.CertBytes())
-	auth := NewAuthenticator(s, ca)
-	pb.RegisterChaincodeSupportServer(s.grpcSrv, auth)
-	go s.grpcSrv.Serve(s.l)
-	defer s.stop()
-	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", 8052), grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(time.Second))
-	assert.NoError(t, err)
-	chaincodeSupportClient := pb.NewChaincodeSupportClient(conn)
-	stream, err := chaincodeSupportClient.Register(context.Background())
-	stream.Send(registerMsg)
-	stream.Send(putStateMsg)
-	// Should fail because we haven't disabled security yet
-	echoMsg, err := stream.Recv()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "TLS is active but chaincode")
-	assert.Nil(t, echoMsg)
-	conn.Close()
-
-	auth.DisableAccessCheck()
-	// Now it should work
-	conn, err = grpc.Dial(fmt.Sprintf("localhost:%d", 8052), grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(time.Second))
-	assert.NoError(t, err)
-	defer conn.Close()
-	chaincodeSupportClient = pb.NewChaincodeSupportClient(conn)
-	stream, err = chaincodeSupportClient.Register(context.Background())
-	stream.Send(registerMsg)
-	stream.Send(putStateMsg)
-	echoMsg, err = stream.Recv()
-	assert.NotNil(t, echoMsg)
-	assert.NoError(t, err)
 }
 
 type logBackend struct {

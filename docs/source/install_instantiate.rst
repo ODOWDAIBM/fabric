@@ -8,7 +8,7 @@ can compile these images locally to ensure they are up to date. It is up
 to the user how to build the images, although a typical approach is
 through vagrant. If you do choose to build through vagrant, make sure
 you have followed the steps outlined in `setting up the development
-environment <dev-setup/devenv.md>`__. Then from the fabric directory
+environment <dev-setup/devenv.html>`__. Then from the fabric directory
 within your vagrant environment, execute the ``make peer-docker`` and
 ``make orderer-docker`` commands.
 
@@ -74,7 +74,7 @@ of ``v0`` onto ``peer0``.
 
 .. code:: bash
 
-    CORE_PEER_ADDRESS=peer0:7051 peer chaincode install -n mycc -p github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02 -v v0
+    CORE_PEER_ADDRESS=peer0:7051 peer chaincode install -n mycc -p github.com/hyperledger/fabric/examples/chaincode/go/example02/cmd -v v0
 
 Instantiate the chaincode on the channel from the remote CLI
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -86,7 +86,7 @@ instantiation will initialize the chaincode with key value pairs of
 
 .. code:: bash
 
-    CORE_PEER_ADDRESS=peer0:7051 peer chaincode instantiate -o orderer:5005 -C myc -n mycc -p github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02 -v v0 -c '{"Args":["init","a","100","b","200"]}'
+    CORE_PEER_ADDRESS=peer0:7051 peer chaincode instantiate -o orderer:5005 -C myc -n mycc -v v0 -c '{"Args":["init","a","100","b","200"]}'
 
 **Continue operating within your second terminal for the remainder of
 the commands**
@@ -132,7 +132,7 @@ read/write operations.
 
 .. code:: bash
 
-    CORE_PEER_ADDRESS=peer1:7051 peer chaincode install -n mycc -p github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02 -v v0
+    CORE_PEER_ADDRESS=peer1:7051 peer chaincode install -n mycc -p github.com/hyperledger/fabric/examples/chaincode/go/example02/cmd -v v0
 
 | **Note**: The initial instantiation applies to all peers in the
   channel, and is affected upon any peer that has the chaincode

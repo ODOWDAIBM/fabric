@@ -24,24 +24,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric/common/tools/configtxgen/provisional"
+	"github.com/hyperledger/fabric/common/flogging"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGoodConfig(t *testing.T) {
-	assert.NotNil(t, Load(), "Could not load config")
+func init() {
+	flogging.SetModuleLevel(pkgLogID, "DEBUG")
 }
 
-func TestMissingConfigFile(t *testing.T) {
+func TestLoadGoodConfig(t *testing.T) {
+	cfg, err := Load()
+	assert.NotNil(t, cfg, "Could not load config")
+	assert.Nil(t, err, "Load good config returned unexpected error")
+}
+
+func TestLoadMissingConfigFile(t *testing.T) {
 	envVar1 := "FABRIC_CFG_PATH"
 	envVal1 := "invalid fabric cfg path"
 	os.Setenv(envVar1, envVal1)
 	defer os.Unsetenv(envVar1)
 
-	assert.Panics(t, func() { Load() }, "Should panic")
+	cfg, err := Load()
+	assert.Nil(t, cfg, "Loaded missing config file")
+	assert.NotNil(t, err, "Loaded missing config file without error")
 }
 
-func TestMalformedConfigFile(t *testing.T) {
+func TestLoadMalformedConfigFile(t *testing.T) {
 	name, err := ioutil.TempDir("", "hyperledger_fabric")
 	assert.Nil(t, err, "Error creating temp dir: %s", err)
 	defer func() {
@@ -62,7 +71,9 @@ func TestMalformedConfigFile(t *testing.T) {
 	os.Setenv(envVar1, envVal1)
 	defer os.Unsetenv(envVar1)
 
-	assert.Panics(t, func() { Load() }, "Should panic")
+	cfg, err := Load()
+	assert.Nil(t, cfg, "Loaded missing config file")
+	assert.NotNil(t, err, "Loaded missing config file without error")
 }
 
 // TestEnvInnerVar verifies that with the Unmarshal function that
@@ -78,7 +89,7 @@ func TestEnvInnerVar(t *testing.T) {
 	os.Setenv(envVar2, envVal2)
 	defer os.Unsetenv(envVar1)
 	defer os.Unsetenv(envVar2)
-	config := Load()
+	config, _ := Load()
 
 	assert.NotNil(t, config, "Could not load config")
 	assert.Equal(t, config.General.ListenPort, envVal1, "Environmental override of inner config test 1 did not work")
@@ -86,8 +97,6 @@ func TestEnvInnerVar(t *testing.T) {
 	v2, _ := time.ParseDuration(envVal2)
 	assert.Equal(t, config.Kafka.Retry.ShortInterval, v2, "Environmental override of inner config test 2 did not work")
 }
-
-const DummyPath = "/dummy/path"
 
 func TestKafkaTLSConfig(t *testing.T) {
 	testCases := []struct {
@@ -104,21 +113,16 @@ func TestKafkaTLSConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			uconf := &TopLevel{Kafka: Kafka{TLS: tc.tls}}
 			if tc.shouldPanic {
-				assert.Panics(t, func() { uconf.completeInitialization(DummyPath) }, "should panic")
+				assert.Panics(t, func() { uconf.completeInitialization("/dummy/path") }, "Should panic")
 			} else {
-				assert.NotPanics(t, func() { uconf.completeInitialization(DummyPath) }, "should not panic")
+				assert.NotPanics(t, func() { uconf.completeInitialization("/dummy/path") }, "Should not panic")
 			}
 		})
 	}
 }
 
 func TestSystemChannel(t *testing.T) {
-	conf := Load()
-	assert.Equal(t, provisional.TestChainID, conf.General.SystemChannel, "System channel ID should be '%s' by default", provisional.TestChainID)
-}
-
-func TestProfileConfig(t *testing.T) {
-	uconf := &TopLevel{General: General{Profile: Profile{Enabled: true}}}
-	uconf.completeInitialization(DummyPath)
-	assert.Equal(t, defaults.General.Profile.Address, uconf.General.Profile.Address, "Expected profile address to be filled with default value")
+	conf, _ := Load()
+	assert.Equal(t, genesisconfig.TestChainID, conf.General.SystemChannel,
+		"Expected default system channel ID to be '%s', got '%s' instead", genesisconfig.TestChainID, conf.General.SystemChannel)
 }

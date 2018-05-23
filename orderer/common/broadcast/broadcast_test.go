@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	cb "github.com/hyperledger/fabric/protos/common"
 	ab "github.com/hyperledger/fabric/protos/orderer"
-	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	logging.SetLevel(logging.DEBUG, "")
+	flogging.SetModuleLevel(pkgLogID, "DEBUG")
 }
 
 type mockStream struct {
@@ -111,6 +111,10 @@ type mockSupport struct {
 	rejectEnqueue    bool
 }
 
+func (ms *mockSupport) WaitReady() error {
+	return nil
+}
+
 // Order sends a message for ordering
 func (ms *mockSupport) Order(env *cb.Envelope, configSeq uint64) error {
 	if ms.rejectEnqueue {
@@ -120,11 +124,11 @@ func (ms *mockSupport) Order(env *cb.Envelope, configSeq uint64) error {
 }
 
 // Configure sends a reconfiguration message for ordering
-func (ms *mockSupport) Configure(configUpdate *cb.Envelope, config *cb.Envelope, configSeq uint64) error {
+func (ms *mockSupport) Configure(config *cb.Envelope, configSeq uint64) error {
 	return ms.Order(config, configSeq)
 }
 
-func (ms *mockSupport) ClassifyMsg(chdr *cb.ChannelHeader) (msgprocessor.Classification, error) {
+func (ms *mockSupport) ClassifyMsg(chdr *cb.ChannelHeader) msgprocessor.Classification {
 	panic("UNIMPLMENTED")
 }
 
@@ -133,6 +137,10 @@ func (ms *mockSupport) ProcessNormalMsg(msg *cb.Envelope) (uint64, error) {
 }
 
 func (ms *mockSupport) ProcessConfigUpdateMsg(msg *cb.Envelope) (*cb.Envelope, uint64, error) {
+	return ms.ProcessConfigEnv, ms.ProcessConfigSeq, ms.ProcessErr
+}
+
+func (ms *mockSupport) ProcessConfigMsg(msg *cb.Envelope) (*cb.Envelope, uint64, error) {
 	return ms.ProcessConfigEnv, ms.ProcessConfigSeq, ms.ProcessErr
 }
 

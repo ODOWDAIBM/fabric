@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/mocks/config"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	"github.com/hyperledger/fabric/core/common/validation"
@@ -38,7 +39,7 @@ func TestInit(t *testing.T) {
 	e := new(EndorserOneValidSignature)
 	stub := shim.NewMockStub("endorseronevalidsignature", e)
 
-	args := [][]byte{[]byte("DEFAULT"), []byte("PEER")}
+	args := [][]byte{[]byte("SampleOrg"), []byte("PEER")}
 	if res := stub.MockInit("1", args); res.Status != shim.OK {
 		fmt.Println("Init failed", string(res.Message))
 		t.FailNow()
@@ -63,7 +64,7 @@ func TestInvoke(t *testing.T) {
 	}
 
 	// Initialize ESCC supplying the identity of the signer
-	args := [][]byte{[]byte("DEFAULT"), []byte("PEER")}
+	args := [][]byte{[]byte("SampleOrg"), []byte("PEER")}
 	if res := stub.MockInit("1", args); res.Status != shim.OK {
 		fmt.Println("Init failed", string(res.Message))
 		t.FailNow()
@@ -370,7 +371,7 @@ func validateProposalResponse(prBytes []byte, proposal *pb.Proposal, ccid *pb.Ch
 	}
 
 	// validate the transaction
-	_, txResult := validation.ValidateTransaction(tx)
+	_, txResult := validation.ValidateTransaction(tx, &config.MockApplicationCapabilities{})
 	if txResult != pb.TxValidationCode_VALID {
 		return err
 	}

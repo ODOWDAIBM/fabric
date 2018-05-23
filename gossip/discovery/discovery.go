@@ -55,13 +55,17 @@ type CommService interface {
 	Ping(peer *NetworkMember) bool
 
 	// Accept returns a read-only channel for membership messages sent from remote peers
-	Accept() <-chan *proto.SignedGossipMessage
+	Accept() <-chan proto.ReceivedMessage
 
 	// PresumedDead returns a read-only channel for peers that are presumed to be dead
 	PresumedDead() <-chan common.PKIidType
 
 	// CloseConn orders to close the connection with a certain peer
 	CloseConn(peer *NetworkMember)
+
+	// Forward sends message to the next hop, excluding the hop
+	// from which message was initially received
+	Forward(msg proto.ReceivedMessage)
 }
 
 // NetworkMember is a peer's representation
@@ -70,6 +74,8 @@ type NetworkMember struct {
 	Metadata         []byte
 	PKIid            common.PKIidType
 	InternalEndpoint string
+	Properties       *proto.Properties
+	*proto.Envelope
 }
 
 // String returns a string representation of the NetworkMember
@@ -127,4 +133,45 @@ type Discovery interface {
 	// the peer, and to assert its PKI-ID, whether its in the peer's org or not,
 	// and whether the action was successful or not
 	Connect(member NetworkMember, id identifier)
+}
+
+// Members represents an aggregation of NetworkMembers
+type Members []NetworkMember
+
+// ByID returns a mapping from the PKI-IDs (in string form)
+// to NetworkMember
+func (members Members) ByID() map[string]NetworkMember {
+	res := make(map[string]NetworkMember, len(members))
+	for _, peer := range members {
+		res[string(peer.PKIid)] = peer
+	}
+	return res
+}
+
+// Intersect returns the intersection of 2 Members
+func (members Members) Intersect(otherMembers Members) Members {
+	var res Members
+	m := otherMembers.ByID()
+	for _, member := range members {
+		if _, exists := m[string(member.PKIid)]; exists {
+			res = append(res, member)
+		}
+	}
+	return res
+}
+
+// Filter returns only members that satisfy the given filter
+func (members Members) Filter(filter func(member NetworkMember) bool) Members {
+	var res Members
+	for _, member := range members {
+		if filter(member) {
+			res = append(res, member)
+		}
+	}
+	return res
+}
+
+// HaveExternalEndpoints selects network members that have external endpoints
+func HasExternalEndpoint(member NetworkMember) bool {
+	return member.Endpoint != ""
 }
